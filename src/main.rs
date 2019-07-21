@@ -47,35 +47,26 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     allocator::init_heap(&mut mapper, &mut frame_allocator)
         .expect("heap initialisation failed");
 
-    use curi_os::vesa_buffer::{draw_pixel, draw_line};
+    use curi_os::vesa_buffer::{Colour16Bit, draw_pixel, draw_line};
     unsafe{
         for i in 200..400 {
-            let colour: u16 = match i%30 {
-                0..9 => 0xf800,
-                10..19 => 0x07e0,
-                20..29 => 0x001f,
-                _ => 0xffff,
+            let colour = match i%30 {
+                0..9 => Colour16Bit::red(),
+                10..19 => Colour16Bit::green(),
+                20..29 => Colour16Bit::blue(),
+                _ => Colour16Bit::white(),
             };
-            draw_pixel(200, i, colour);
+            draw_pixel(200, i, colour.as_u16());
         }
 
-        draw_line(0, 0, 799, 599, 0xf800);
-        draw_line(500, 20, 20, 500, 0x001f);
-        assert_eq!(63u16 << 5, 2016);
-        println!("Assertion passed");
-        assert_eq!(31u16 << 11, 0xf800);
-        println!("Assertion2 passed");
-        assert_eq!((31u16 << 11) + (63u16 << 5) + 31, 0xffff);
-        println!("Assertion3 passed");
+        draw_line(0, 0, 799, 599, Colour16Bit::red().as_u16());
+        draw_line(500, 20, 20, 500, Colour16Bit::blue().as_u16());
         for i in 100..700 {
-            let red: u16 = 32 * (700 - i) / 600;
-            let green: u16 = (64 * (400 - i as i16).abs() / 300) as u16;
-            let blue: u16 = 32 * (i - 100) / 600;
-            let colour = (red << 11) + (green << 5) + blue;
-            if i % 100 == 0 {
-                println!("R:{}, G:{}, B:{}, Colour is {}", red, green, blue, colour);
-            }
-            draw_line(i as usize, 50, i as usize, 150, colour);
+            let red: u8 = (32 * (700 - i) / 600) as u8;
+            let green: u8 = (64 * (400 - i as i16).abs() / 300) as u8;
+            let blue: u8 = (32 * (i - 100) / 600) as u8;
+            let colour = Colour16Bit{red, green, blue};
+            draw_line(i as usize, 50, i as usize, 150, colour.as_u16());
         }
     }
 

@@ -149,6 +149,36 @@ fn test_println_output() {
     serial_println!("[ok]");
 }
 
+pub struct Colour16Bit {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+}
+
+impl Colour16Bit {
+    pub fn red() -> Colour16Bit {
+        Colour16Bit{red:0x1f, green:0x0, blue:0x0}
+    }
+
+    pub fn green() -> Colour16Bit {
+        Colour16Bit{red:0x0, green:0x3f, blue:0x0}
+    }
+
+    pub fn blue() -> Colour16Bit {
+        Colour16Bit{red:0x0, green:0x0, blue:0x1f}
+    }
+
+    pub fn white() -> Colour16Bit {
+        Colour16Bit{red:0x1f, green:0x3f, blue:0x1f}
+    }
+
+    pub fn as_u16(&self) -> u16 {
+        ((self.red as u16) << 11) +
+            ((self.green as u16) << 5) +
+            self.blue as u16
+    }
+}
+
 pub unsafe fn draw_pixel(x: usize, y: usize, colour: u16) {
     let vga_buffer: &mut [u16] = unsafe {
         slice::from_raw_parts_mut(VGA_BUFFER, SCREEN_WIDTH * SCREEN_HEIGHT)
