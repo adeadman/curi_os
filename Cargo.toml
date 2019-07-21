@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bootloader = { version = "0.6.4", features = ["map_physical_memory"]}
+bootloader = { version = "0.6.4", features = ["map_physical_memory", "vesa_800x600"], path = "../bootloader" }
 linked_list_allocator = "0.6.4"
 pc-keyboard = "0.5.0"
 pic8259_simple = "0.1.1"
@@ -16,9 +16,18 @@ uart_16550 = "0.2.0"
 volatile = "0.2.3"
 x86_64 = "0.7.2"
 
+[dependencies.font8x8]
+version = "0.2.4"
+default-features = false
+features = ["unicode"]
+
 [dependencies.lazy_static]
 version = "1.0"
 features = ["spin_no_std"]
+
+[dependencies.num-traits]
+version = "0.2.8"
+default-features = false
 
 [package.metadata.bootimage]
 test-args = ["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", "-serial", "stdio", "-display", "none"]

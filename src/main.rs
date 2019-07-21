@@ -1,12 +1,12 @@
 #![no_std]
 #![no_main]
 #![feature(custom_test_frameworks)]
+#![feature(exclusive_range_pattern)]
 #![test_runner(curi_os::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
 extern crate alloc;
 
-use alloc::{boxed::Box, vec, vec::Vec, rc::Rc};
 use bootloader::{BootInfo,  entry_point};
 use core::panic::PanicInfo;
 use curi_os::println;
@@ -33,6 +33,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     use x86_64::VirtAddr;
     use x86_64::structures::paging::{Page};
 
+    use curi_os::vesa_buffer::clear_screen;
+    clear_screen();
+
     println!("Hello World{}", "!");
     curi_os::init();
 
@@ -44,27 +47,26 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     allocator::init_heap(&mut mapper, &mut frame_allocator)
         .expect("heap initialisation failed");
 
-    // allocate a number on the heap
-    let heap_value = Box::new(41);
-    println!("heap_value at {:p}", heap_value);
+    use curi_os::vesa_buffer::{draw_pixel, draw_line};
+    unsafe{
+        for i in 200..400 {
+            let colour: u16 = match i%30 {
+                0..9 => 0xf800,
+                10..19 => 0x07e0,
+                20..29 => 0x001f,
+                _ => 0xffff,
+            };
+            draw_pixel(200, i, colour);
+        }
 
-    // create a dynamically sized vector
-    let mut vec = Vec::new();
-    for i in 0..500 {
-        vec.push(i);
+        draw_line(0, 0, 799, 599, 0xf800);
+        draw_line(500, 20, 20, 500, 0x001f);
     }
-    println!("vec at {:p}", vec.as_slice());
-
-    // create a reference counted vector -> will be freed when count reaches 0
-    let reference_counted = Rc::new(vec![1, 2, 3]);
-    let cloned_reference = reference_counted.clone();
-    println!("current reference count is {}", Rc::strong_count(&cloned_reference));
-    core::mem::drop(reference_counted);
-    println!("now ref count is {}", Rc::strong_count(&cloned_reference));
 
     #[cfg(test)]
     test_main();
 
-    println!("It didn't crash!");
+    //println!("It didn't crash!");
     curi_os::hlt_loop();
 }
+

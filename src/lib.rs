@@ -2,18 +2,21 @@
 #![feature(alloc_error_handler)]
 #![cfg_attr(test, no_main)]
 #![feature(abi_x86_interrupt)]
+#![feature(core_intrinsics)]
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
 extern crate alloc;
+extern crate num_traits;
 
 pub mod allocator;
 pub mod gdt;
 pub mod interrupts;
 pub mod memory;
 pub mod serial;
-pub mod vga_buffer;
+//pub mod vga_buffer;
+pub mod vesa_buffer;
 
 use core::panic::PanicInfo;
 #[cfg(test)]
