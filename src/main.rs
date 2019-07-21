@@ -61,6 +61,22 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
         draw_line(0, 0, 799, 599, 0xf800);
         draw_line(500, 20, 20, 500, 0x001f);
+        assert_eq!(63u16 << 5, 2016);
+        println!("Assertion passed");
+        assert_eq!(31u16 << 11, 0xf800);
+        println!("Assertion2 passed");
+        assert_eq!((31u16 << 11) + (63u16 << 5) + 31, 0xffff);
+        println!("Assertion3 passed");
+        for i in 100..700 {
+            let red: u16 = 32 * (700 - i) / 600;
+            let green: u16 = (64 * (400 - i as i16).abs() / 300) as u16;
+            let blue: u16 = 32 * (i - 100) / 600;
+            let colour = (red << 11) + (green << 5) + blue;
+            if i % 100 == 0 {
+                println!("R:{}, G:{}, B:{}, Colour is {}", red, green, blue, colour);
+            }
+            draw_line(i as usize, 50, i as usize, 150, colour);
+        }
     }
 
     #[cfg(test)]
