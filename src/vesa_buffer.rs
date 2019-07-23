@@ -1,4 +1,5 @@
 use core::{fmt, slice};
+use crate::num_traits::float::FloatCore;
 use lazy_static::lazy_static;
 use spin::Mutex;
 
@@ -179,12 +180,18 @@ impl Colour16Bit {
     }
 }
 
-pub unsafe fn draw_pixel(x: usize, y: usize, colour: u16) {
+pub const RED: Colour16Bit = Colour16Bit { red:0x1f, green:0x0, blue:0x0 };
+pub const GREEN: Colour16Bit  = Colour16Bit { red:0x0, green:0x3f, blue:0x0 };
+pub const BLUE: Colour16Bit = Colour16Bit { red:0x0, green:0x0, blue:0x1f };
+pub const WHITE: Colour16Bit = Colour16Bit{ red:0x1f, green:0x3f, blue:0x1f };
+pub const BLACK: Colour16Bit = Colour16Bit{ red:0x0, green:0x0, blue:0x0 };
+
+pub fn draw_pixel(x: usize, y: usize, colour: &Colour16Bit) {
     let vga_buffer: &mut [u16] = unsafe {
         slice::from_raw_parts_mut(VGA_BUFFER, SCREEN_WIDTH * SCREEN_HEIGHT)
     };
     let pixel_offset: usize = y * 800 + x;
-    vga_buffer[pixel_offset] = colour;
+    vga_buffer[pixel_offset] = colour.as_u16();
 }
 
 pub fn clear_screen() {
@@ -195,15 +202,13 @@ pub fn clear_screen() {
 }
 
 /// Bresenham's Line Drawing Algorithm
-pub unsafe fn draw_line(
+pub fn draw_line(
     start_x: usize,
     start_y: usize,
     end_x: usize,
     end_y: usize,
-    colour: u16,
+    colour: &Colour16Bit,
 ) {
-    use crate::num_traits::float::FloatCore;
-
     let deltax: f64 = (end_x as f64 - start_x as f64).abs();
     let sx: isize = if start_x < end_x { 1 } else { -1 };
     let deltay: f64 = -((end_y as f64 - start_y as f64).abs());
@@ -217,15 +222,150 @@ pub unsafe fn draw_line(
         if current_x == end_x && current_y == end_y {
             done = true;
         }
-        draw_pixel(current_x, current_y, colour);
+        draw_pixel(current_x, current_y, &colour);
         let e2 = 2.0 * err;
-        if (e2 >= deltay) {
+        if e2 >= deltay {
             err += deltay;
             current_x = (current_x as isize + sx) as usize;
         }
-        if (e2 <= deltax) {
+        if e2 <= deltax {
             err += deltax;
             current_y = (current_y as isize + sy) as usize;
         }
     }
+}
+
+pub fn draw_pixel_with_brightness(
+    x: usize, y: usize,
+    colour: &Colour16Bit,
+    brightness: f64
+) {
+    assert!(brightness >= 0.0 && brightness <= 1.0,
+            "draw_pixel_with_brightness: Bad brightness of {}", brightness);
+    match brightness {
+        1.0 => draw_pixel(x, y, &colour),
+        0.0 => draw_pixel(x, y, &BLACK),
+        _ => draw_pixel(x, y, &Colour16Bit{
+            red: (colour.red as f64 * brightness) as u8,
+            green: (colour.green as f64 * brightness) as u8,
+            blue: (colour.blue as f64 * brightness) as u8,
+        }),
+    }
+}
+
+// Xiaolin Wu's Line Drawing Algorithm
+pub fn draw_smooth_line(
+    start_x: usize,
+    start_y: usize,
+    end_x: usize,
+    end_y: usize,
+    colour: &Colour16Bit,
+) {
+    let deltax: f64 = (end_x as f64 - start_x as f64).abs();
+    let deltay: f64 = (end_y as f64 - start_y as f64).abs();
+    let steep = deltay > deltax;
+
+    let mut x0 = start_x as f64;
+    let mut x1 = end_x as f64;
+    let mut y0 = start_y as f64;
+    let mut y1 = end_y as f64;
+
+    if steep == true {
+        let tmp = y0;
+        y0 = x0;
+        x0 = tmp;
+
+        let tmp = y1;
+        y1 = x1;
+        x1 = tmp;
+    }
+    if x0 > x1 {
+        let tmp = x0;
+        x0 = x1;
+        x1 = tmp;
+
+        let tmp = y0;
+        y0 = y1;
+        y1 = tmp;
+    }
+
+    let deltax = x1 - x0;
+    let deltay = y1 - y0;
+    let gradient = match deltax == 0.0 {
+        true => 1.0,
+        false => deltay / deltax,
+    };
+
+    // handle first endpoint
+    let xend = hround(x0);
+    let yend = y0 + gradient * (xend - x0);
+    let xgap = rfract(x0 + 0.5);
+    let x_pixel1 = xend as usize;
+    let y_pixel1 = trunc(yend) as usize;
+    if steep == true {
+        draw_pixel_with_brightness(y_pixel1, x_pixel1, &colour, rfract(yend) * xgap);
+        draw_pixel_with_brightness(y_pixel1 + 1, x_pixel1, &colour, fract(yend) * xgap);
+    } else {
+        draw_pixel_with_brightness(x_pixel1, y_pixel1, &colour, rfract(yend) * xgap);
+        draw_pixel_with_brightness(x_pixel1, y_pixel1 + 1, &colour, fract(yend) * xgap);
+    }
+
+    let mut inter_y = yend + gradient;  // first y-intersection for the loop
+
+    // handle second endpoint
+    let xend = hround(x1);
+    let yend = y1 + gradient * (xend - x1);
+    let xgap = fract(x1 + 0.5);
+    let x_pixel2 = xend as usize;
+    let y_pixel2 = trunc(yend) as usize;
+    if steep == true {
+        draw_pixel_with_brightness(y_pixel2, x_pixel2, &colour, rfract(yend) * xgap);
+        draw_pixel_with_brightness(y_pixel2 + 1, x_pixel2, &colour, fract(yend) * xgap);
+    } else {
+        draw_pixel_with_brightness(x_pixel2, y_pixel2, &colour, rfract(yend) * xgap);
+        draw_pixel_with_brightness(x_pixel2, y_pixel2 + 1, &colour, fract(yend) * xgap);
+    }
+
+    // main draw loop
+    if steep == true {
+        for x in (x_pixel1 + 1)..x_pixel2 {
+            draw_pixel_with_brightness(trunc(inter_y) as usize, x, &colour, rfract(inter_y));
+            draw_pixel_with_brightness(trunc(inter_y) as usize + 1, x, &colour, fract(inter_y));
+            inter_y += gradient;
+        }
+    } else {
+        for x in (x_pixel1 + 1)..x_pixel2 {
+            draw_pixel_with_brightness(x, trunc(inter_y) as usize, &colour, rfract(inter_y));
+            draw_pixel_with_brightness(x, trunc(inter_y) as usize + 1, &colour, fract(inter_y));
+            inter_y += gradient;
+        }
+    }
+}
+
+/// Super dumb implementation of a float fractional part calculation
+fn fract(a: f64) -> f64 {
+    let mut b = a;
+    if b > 0.0 {
+        while b >= 1.0 {
+            b -= 1.0;
+        }
+    } else if b < 0.0 {
+        while b <= -1.0 {
+            b += 1.0;
+        }
+    }
+    b
+}
+
+/// Super dumb implementation of a truncate function for floats
+fn trunc(a: f64) -> f64 {
+    a - fract(a)
+}
+
+fn hround(a: f64) -> f64 {
+    trunc(a + 0.5)
+}
+
+fn rfract(a: f64) -> f64 {
+    1.0 - fract(a)
 }
