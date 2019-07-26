@@ -76,6 +76,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     draw_smooth_line(699, 150, 100, 50,
                      &Colour16Bit{red:16, green:63, blue:16});
 
+    use curi_os::vesa_buffer::SCREEN;
+    SCREEN.lock().draw_red_square();
+    SCREEN.lock().swap_buffers();
     #[cfg(test)]
     test_main();
 

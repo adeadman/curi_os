@@ -1,7 +1,9 @@
 use core::{fmt, slice};
+use core::ptr::copy_nonoverlapping;
 use crate::num_traits::float::FloatCore;
 use lazy_static::lazy_static;
 use spin::Mutex;
+use alloc::vec::Vec;
 
 #[cfg(test)]
 use crate::{serial_print, serial_println};
@@ -90,6 +92,39 @@ lazy_static! {
         xpos: 0,
         ypos: 0,
         vga_buffer: unsafe { slice::from_raw_parts_mut(VGA_BUFFER, SCREEN_WIDTH * SCREEN_HEIGHT) }
+    });
+}
+
+pub struct Screen {
+    vga_buffer: &'static mut [u16],
+    back_buffer: Vec<u16>,
+}
+
+impl Screen {
+    pub fn swap_buffers(&mut self) {
+        unsafe {
+            let src_ptr = self.back_buffer.as_slice().as_ptr();
+            let dst_ptr = self.vga_buffer.as_mut_ptr();
+            copy_nonoverlapping(src_ptr, dst_ptr, SCREEN_WIDTH*SCREEN_HEIGHT);
+        }
+    }
+
+    pub fn draw_red_square(&mut self) {
+        let back_buffer = self.back_buffer.as_mut_slice();
+        for y in 400..500 {
+            for x in 400..500 {
+                let pixel_offset: usize = y * 800 + x;
+                back_buffer[pixel_offset] = RED.as_u16();
+            }
+        }
+    }
+}
+
+lazy_static! {
+    pub static ref SCREEN: Mutex<Screen> = Mutex::new(Screen {
+        vga_buffer: unsafe { slice::from_raw_parts_mut(VGA_BUFFER, SCREEN_WIDTH * SCREEN_HEIGHT) },
+        //back_buffer: Vec::<u16>with_capacity(SCREEN_WIDTH * SCREEN_HEIGHT).as_mut_slice(),
+        back_buffer: vec![0_u16; SCREEN_WIDTH * SCREEN_HEIGHT],
     });
 }
 
@@ -242,14 +277,16 @@ pub fn draw_pixel_with_brightness(
 ) {
     assert!(brightness >= 0.0 && brightness <= 1.0,
             "draw_pixel_with_brightness: Bad brightness of {}", brightness);
-    match brightness {
-        1.0 => draw_pixel(x, y, &colour),
-        0.0 => draw_pixel(x, y, &BLACK),
-        _ => draw_pixel(x, y, &Colour16Bit{
+    if brightness == 1.0 {
+        draw_pixel(x, y, &colour);
+    } else if brightness == 0.0 {
+        draw_pixel(x, y, &BLACK);
+    } else {
+        draw_pixel(x, y, &Colour16Bit{
             red: (colour.red as f64 * brightness) as u8,
             green: (colour.green as f64 * brightness) as u8,
             blue: (colour.blue as f64 * brightness) as u8,
-        }),
+        });
     }
 }
 

@@ -7,6 +7,7 @@
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
+#[macro_use]
 extern crate alloc;
 extern crate num_traits;
 
