@@ -17,17 +17,15 @@ const VGA_BUFFER: *mut u16 = (500 * 512 * 4096) as *mut _;
 pub struct Writer {
     xpos: usize,
     ypos: usize,
-    vga_buffer: &'static mut [u16],
 }
 
 impl Writer {
     pub fn clear_screen(&mut self) {
-        for pixel in 0..self.vga_buffer.len() {
-            self.vga_buffer[pixel] = 0x0;  // 66;
-        }
+        SCREEN.lock().clear_screen();
         self.xpos = 0;
         self.ypos = 0;
     }
+
     fn newline(&mut self) {
         self.ypos += 8;
         self.xpos = 0;
@@ -51,15 +49,17 @@ impl Writer {
                 let rendered = font8x8::BASIC_FONTS
                     .get(c)
                     .expect("character not found in basic font");
+
                 for (y, byte) in rendered.iter().enumerate() {
                     for (x, bit) in (0..8).enumerate() {
                         if *byte & (1 << bit) == 0 {
                             continue;
                         }
-                        let color = 0xffff;
-                        self.vga_buffer[(self.ypos + y) * SCREEN_WIDTH + self.xpos + x] = color;
+                        let color = &WHITE;
+                        SCREEN.lock().plot_pixel(self.xpos + x, self.ypos + y, color);
                     }
                 }
+                SCREEN.lock().swap_buffers();
             }
             _ => panic!("unprintable character"),
         }
@@ -91,7 +91,6 @@ lazy_static! {
     pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
         xpos: 0,
         ypos: 0,
-        vga_buffer: unsafe { slice::from_raw_parts_mut(VGA_BUFFER, SCREEN_WIDTH * SCREEN_HEIGHT) }
     });
 }
 
@@ -113,10 +112,33 @@ impl Screen {
         let back_buffer = self.back_buffer.as_mut_slice();
         for y in 400..500 {
             for x in 400..500 {
-                let pixel_offset: usize = y * 800 + x;
+                let pixel_offset: usize = y * SCREEN_WIDTH + x;
                 back_buffer[pixel_offset] = RED.as_u16();
             }
         }
+    }
+
+    pub fn clear_screen(&mut self) {
+        self.clear_back_buffer();
+        self.swap_buffers();
+    }
+
+    fn clear_back_buffer(&mut self) {
+        let back_buffer = self.back_buffer.as_mut_slice();
+        for pixel in 0..back_buffer.len() {
+            back_buffer[pixel] = 0x0;
+        }
+    }
+
+    pub fn plot_pixel(&mut self, x: usize, y: usize, colour: &Colour16Bit) {
+        let back_buffer = self.back_buffer.as_mut_slice();
+        back_buffer[y * SCREEN_WIDTH + x] = colour.as_u16();
+    }
+
+    pub fn get_colour_at(&self, x: usize, y: usize) -> Colour16Bit {
+        let back_buffer = self.back_buffer.as_slice();
+        let pixel_offset = y * SCREEN_WIDTH + x;
+        Colour16Bit::from_u16(back_buffer[pixel_offset])
     }
 }
 
@@ -208,11 +230,42 @@ impl Colour16Bit {
         Colour16Bit{red:0x1f, green:0x3f, blue:0x1f}
     }
 
+    pub fn from_u16(rgb: u16) -> Colour16Bit {
+        let red = ((rgb & 0xf800) >> 11) as u8;
+        let green = ((rgb & 0x7e0) >> 5) as u8;
+        let blue = (rgb & 0x1f) as u8;
+        Colour16Bit{red, green, blue}
+    }
+
+    pub fn blend_colour(
+        &self,
+        other: &Colour16Bit,
+        opacity: f64
+    ) -> Colour16Bit {
+        let red = scale_first_to_other(self.red, other.red, opacity);
+        let green = scale_first_to_other(self.green, other.green, opacity);
+        let blue = scale_first_to_other(self.blue, other.blue, opacity);
+        Colour16Bit{red, green, blue}
+    }
+
     pub fn as_u16(&self) -> u16 {
         ((self.red as u16) << 11) +
             ((self.green as u16) << 5) +
             self.blue as u16
     }
+}
+
+/// algorithm to find the value that is the mixed ratio between
+/// the first value and the other value by the amount specified
+///
+/// e.g. first = 10, other = 20, amount = 0.2
+/// should return 18
+/// (20% of 10 and 80% of 20)
+/// (20 * 0.8) + (10 * 0.2) = 16 + 2 = 18
+fn scale_first_to_other(first: u8, other: u8, amount: f64) -> u8 {
+    let first_f64 = first as f64;
+    let other_f64 = other as f64;
+    (other_f64 * (1.0 - amount) + first_f64 * amount) as u8
 }
 
 pub const RED: Colour16Bit = Colour16Bit { red:0x1f, green:0x0, blue:0x0 };
@@ -222,17 +275,13 @@ pub const WHITE: Colour16Bit = Colour16Bit{ red:0x1f, green:0x3f, blue:0x1f };
 pub const BLACK: Colour16Bit = Colour16Bit{ red:0x0, green:0x0, blue:0x0 };
 
 pub fn draw_pixel(x: usize, y: usize, colour: &Colour16Bit) {
-    let vga_buffer: &mut [u16] = unsafe {
-        slice::from_raw_parts_mut(VGA_BUFFER, SCREEN_WIDTH * SCREEN_HEIGHT)
-    };
-    let pixel_offset: usize = y * 800 + x;
-    vga_buffer[pixel_offset] = colour.as_u16();
+    SCREEN.lock().plot_pixel(x, y, &colour);
 }
 
 pub fn clear_screen() {
     use x86_64::instructions::interrupts;
     interrupts::without_interrupts(|| {
-        WRITER.lock().clear_screen();
+        SCREEN.lock().clear_screen();
     });
 }
 
@@ -270,24 +319,21 @@ pub fn draw_line(
     }
 }
 
-pub fn draw_pixel_with_brightness(
+pub fn draw_pixel_with_opacity(
     x: usize, y: usize,
     colour: &Colour16Bit,
-    brightness: f64
+    opacity: f64
 ) {
-    assert!(brightness >= 0.0 && brightness <= 1.0,
-            "draw_pixel_with_brightness: Bad brightness of {}", brightness);
-    if brightness == 1.0 {
+    assert!(opacity >= 0.0 && opacity <= 1.0,
+            "draw_pixel_with_opacity: Bad opacity of {}", opacity);
+    if opacity == 1.0 {
         draw_pixel(x, y, &colour);
-    } else if brightness == 0.0 {
-        draw_pixel(x, y, &BLACK);
-    } else {
-        draw_pixel(x, y, &Colour16Bit{
-            red: (colour.red as f64 * brightness) as u8,
-            green: (colour.green as f64 * brightness) as u8,
-            blue: (colour.blue as f64 * brightness) as u8,
-        });
+    } else if opacity != 0.0 {
+        let bg_colour = SCREEN.lock().get_colour_at(x, y);
+        let blended_colour = colour.blend_colour(&bg_colour, opacity);
+        SCREEN.lock().plot_pixel(x, y, &blended_colour);
     }
+    // no need to draw anything if the opacity is 0.0
 }
 
 // Xiaolin Wu's Line Drawing Algorithm
@@ -340,11 +386,11 @@ pub fn draw_smooth_line(
     let x_pixel1 = xend as usize;
     let y_pixel1 = trunc(yend) as usize;
     if steep == true {
-        draw_pixel_with_brightness(y_pixel1, x_pixel1, &colour, rfract(yend) * xgap);
-        draw_pixel_with_brightness(y_pixel1 + 1, x_pixel1, &colour, fract(yend) * xgap);
+        draw_pixel_with_opacity(y_pixel1, x_pixel1, &colour, rfract(yend) * xgap);
+        draw_pixel_with_opacity(y_pixel1 + 1, x_pixel1, &colour, fract(yend) * xgap);
     } else {
-        draw_pixel_with_brightness(x_pixel1, y_pixel1, &colour, rfract(yend) * xgap);
-        draw_pixel_with_brightness(x_pixel1, y_pixel1 + 1, &colour, fract(yend) * xgap);
+        draw_pixel_with_opacity(x_pixel1, y_pixel1, &colour, rfract(yend) * xgap);
+        draw_pixel_with_opacity(x_pixel1, y_pixel1 + 1, &colour, fract(yend) * xgap);
     }
 
     let mut inter_y = yend + gradient;  // first y-intersection for the loop
@@ -356,24 +402,24 @@ pub fn draw_smooth_line(
     let x_pixel2 = xend as usize;
     let y_pixel2 = trunc(yend) as usize;
     if steep == true {
-        draw_pixel_with_brightness(y_pixel2, x_pixel2, &colour, rfract(yend) * xgap);
-        draw_pixel_with_brightness(y_pixel2 + 1, x_pixel2, &colour, fract(yend) * xgap);
+        draw_pixel_with_opacity(y_pixel2, x_pixel2, &colour, rfract(yend) * xgap);
+        draw_pixel_with_opacity(y_pixel2 + 1, x_pixel2, &colour, fract(yend) * xgap);
     } else {
-        draw_pixel_with_brightness(x_pixel2, y_pixel2, &colour, rfract(yend) * xgap);
-        draw_pixel_with_brightness(x_pixel2, y_pixel2 + 1, &colour, fract(yend) * xgap);
+        draw_pixel_with_opacity(x_pixel2, y_pixel2, &colour, rfract(yend) * xgap);
+        draw_pixel_with_opacity(x_pixel2, y_pixel2 + 1, &colour, fract(yend) * xgap);
     }
 
     // main draw loop
     if steep == true {
         for x in (x_pixel1 + 1)..x_pixel2 {
-            draw_pixel_with_brightness(trunc(inter_y) as usize, x, &colour, rfract(inter_y));
-            draw_pixel_with_brightness(trunc(inter_y) as usize + 1, x, &colour, fract(inter_y));
+            draw_pixel_with_opacity(trunc(inter_y) as usize, x, &colour, rfract(inter_y));
+            draw_pixel_with_opacity(trunc(inter_y) as usize + 1, x, &colour, fract(inter_y));
             inter_y += gradient;
         }
     } else {
         for x in (x_pixel1 + 1)..x_pixel2 {
-            draw_pixel_with_brightness(x, trunc(inter_y) as usize, &colour, rfract(inter_y));
-            draw_pixel_with_brightness(x, trunc(inter_y) as usize + 1, &colour, fract(inter_y));
+            draw_pixel_with_opacity(x, trunc(inter_y) as usize, &colour, rfract(inter_y));
+            draw_pixel_with_opacity(x, trunc(inter_y) as usize + 1, &colour, fract(inter_y));
             inter_y += gradient;
         }
     }

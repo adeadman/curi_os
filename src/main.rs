@@ -31,24 +31,33 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     use curi_os::allocator;
     use curi_os::memory;
 
-    use curi_os::vesa_buffer::clear_screen;
-    clear_screen();
-
-    println!("Hello World{}", "!");
+    // Initialise the kernel library functions
     curi_os::init();
 
+    // Create our memory mapper and allocator
     let mut mapper = unsafe { memory::init(boot_info.physical_memory_offset) };
     let mut frame_allocator = unsafe {
         memory::BootInfoFrameAllocator::init(&boot_info.memory_map)
     };
 
+    // Initialise the heap
     allocator::init_heap(&mut mapper, &mut frame_allocator)
         .expect("heap initialisation failed");
 
+    use curi_os::vesa_buffer::clear_screen;
+    clear_screen();
+
+    println!("Hello World{}", "!");
+
     use curi_os::vesa_buffer::{Colour16Bit, draw_pixel, draw_line,
-                               draw_pixel_with_brightness,
+                               draw_pixel_with_opacity,
                                draw_smooth_line};
     use curi_os::vesa_buffer::{RED, GREEN, BLUE, WHITE};
+
+    let blended_colour = RED.blend_colour(&WHITE, 0.5);
+    assert_eq!(blended_colour.red, 31);
+    assert_eq!(blended_colour.green, 31);
+    assert_eq!(blended_colour.blue, 15);
 
     for i in 200..400 {
         let colour = match i%30 {
@@ -58,7 +67,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
             _ => WHITE,
         };
         draw_pixel(200, i, &colour);
-        draw_pixel_with_brightness(i, 530, &GREEN, (i - 200) as f64 / 200.0);
+        draw_pixel_with_opacity(i, 530, &GREEN, (i - 200) as f64 / 200.0);
     }
 
     draw_line(0, 0, 799, 599, &RED);
