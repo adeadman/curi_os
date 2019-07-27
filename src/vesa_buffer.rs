@@ -30,7 +30,9 @@ impl Writer {
         self.ypos += 8;
         self.xpos = 0;
         if self.ypos >= SCREEN_HEIGHT {
-            self.clear_screen();
+            // self.clear_screen();
+            SCREEN.lock().scroll_buffer_vertically(8);
+            self.ypos -= 8;
         }
     }
 
@@ -128,6 +130,12 @@ impl Screen {
         for pixel in 0..back_buffer.len() {
             back_buffer[pixel] = 0x0;
         }
+    }
+
+    pub fn scroll_buffer_vertically(&mut self, num_pixels: usize) {
+        self.back_buffer.drain(0..SCREEN_WIDTH*num_pixels);
+        self.back_buffer.extend(vec![0x0; SCREEN_WIDTH*num_pixels]);
+        self.swap_buffers();
     }
 
     pub fn plot_pixel(&mut self, x: usize, y: usize, colour: &Colour16Bit) {
