@@ -14,6 +14,7 @@ use crate::{serial_print, serial_println};
 pub enum InterruptIndex {
     Timer = PIC_1_OFFSET,
     Keyboard,
+    Mouse = 0x2C,  // IRQ 12
 }
 
 impl InterruptIndex {
@@ -85,6 +86,9 @@ lazy_static! {
         // PIC Interrupt 1 - Keyboard
         idt[InterruptIndex::Keyboard.as_usize()]
             .set_handler_fn(keyboard_interrupt_handler);
+        // IRQ 12 - Mouse
+        idt[InterruptIndex::Mouse.as_usize()]
+            .set_handler_fn(mouse_interrupt_handler);
 
         idt
     };
@@ -146,9 +150,10 @@ extern "x86-interrupt" fn device_not_available_handler(
 }
 
 extern "x86-interrupt" fn double_fault_handler(
-    stack_frame: &mut InterruptStackFrame, _error_code: u64)
+    stack_frame: &mut InterruptStackFrame, error_code: u64)
 {
-    panic!("EXCEPTION: DOUBLEFAULT\n{:#?}", stack_frame);
+    panic!("EXCEPTION: DOUBLEFAULT - error code {}\n{:#?}",
+           error_code, stack_frame);
 }
 
 extern "x86-interrupt" fn invalid_tss_handler(
@@ -158,9 +163,10 @@ extern "x86-interrupt" fn invalid_tss_handler(
 }
 
 extern "x86-interrupt" fn segment_not_present_handler(
-    stack_frame: &mut InterruptStackFrame, _error_code: u64)
+    stack_frame: &mut InterruptStackFrame, error_code: u64)
 {
-    panic!("EXCEPTION: SEGMENT NOT PRESENT\n{:#?}", stack_frame);
+    panic!("EXCEPTION: SEGMENT NOT PRESENT - error code {:x}\n{:#?}",
+           error_code, stack_frame);
 }
 
 extern "x86-interrupt" fn stack_segment_fault_handler(
@@ -262,6 +268,44 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(
     unsafe {
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8());
+    }
+}
+
+extern "x86-interrupt" fn mouse_interrupt_handler(
+    _stack_frame: &mut InterruptStackFrame)
+{
+    use x86_64::instructions::port::Port;
+    use crate::mouse::Mouse;
+    let mut port = Port::new(0x60);
+
+    let mouse_bits: u8 = unsafe { port.read() };
+    let x_movement: u8 = unsafe { port.read() };
+    let y_movement: u8 = unsafe { port.read() };
+
+    let y_overflow: bool = mouse_bits & 0x80 == 0x80;
+    let x_overflow: bool = mouse_bits & 0x40 == 0x40;
+
+    if !(x_overflow || y_overflow) {
+        let y_is_negative = mouse_bits & 0x20 == 0x20;
+        let x_is_negative = mouse_bits & 0x10 == 0x10;
+
+        let mouse_state = Mouse{
+            left_button: mouse_bits & 1 == 1,
+            middle_button: mouse_bits & 0x4 == 0x4,
+            right_button: mouse_bits & 0x2 == 0x2,
+            // if the sign bits are set, the value is 9-bit two's complement
+            delta_x: (x_movement as u32 | if x_is_negative {
+                0xffffff00 } else { 0 }) as i32,
+            delta_y: (y_movement as u32 | if y_is_negative {
+                0xffffff00 } else { 0 }) as i32,
+        };
+
+        println!("{:#?}", mouse_state);
+    }
+
+    unsafe {
+        PICS.lock()
+            .notify_end_of_interrupt(InterruptIndex::Mouse.as_u8());
     }
 }
 

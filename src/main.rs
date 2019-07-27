@@ -88,6 +88,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     use curi_os::vesa_buffer::SCREEN;
     SCREEN.lock().draw_red_square();
     SCREEN.lock().swap_buffers();
+
+    use curi_os::mouse::init_mouse;
+    println!("Going to init the mouse");
+    init_mouse();
     #[cfg(test)]
     test_main();
 

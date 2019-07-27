@@ -18,6 +18,7 @@ pub mod memory;
 pub mod serial;
 //pub mod vga_buffer;
 pub mod vesa_buffer;
+pub mod mouse;
 
 use core::panic::PanicInfo;
 #[cfg(test)]
