@@ -271,11 +271,15 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(
     }
 }
 
+static mut MOUSE_X: i32 = 100;
+static mut MOUSE_Y: i32 = 100;
+
 extern "x86-interrupt" fn mouse_interrupt_handler(
     _stack_frame: &mut InterruptStackFrame)
 {
     use x86_64::instructions::port::Port;
-    use crate::mouse::Mouse;
+    use crate::mouse::{CURSOR_BITMAP, Mouse};
+    use crate::vesa_buffer::{SCREEN, SCREEN_WIDTH, SCREEN_HEIGHT};
     let mut port = Port::new(0x60);
 
     let mouse_bits: u8 = unsafe { port.read() };
@@ -299,8 +303,24 @@ extern "x86-interrupt" fn mouse_interrupt_handler(
             delta_y: (y_movement as u32 | if y_is_negative {
                 0xffffff00 } else { 0 }) as i32,
         };
-
-        println!("{:#?}", mouse_state);
+        unsafe {
+            MOUSE_X += mouse_state.delta_x;
+            if MOUSE_X < 0 { MOUSE_X = 0; }
+            if MOUSE_X >= SCREEN_WIDTH as i32 {
+                MOUSE_X = SCREEN_WIDTH as i32 - 1;
+            }
+            // Y is negative towards the bottom of the screen
+            MOUSE_Y -= mouse_state.delta_y;
+            if MOUSE_Y < 0 { MOUSE_Y = 0; }
+            if MOUSE_Y >= SCREEN_HEIGHT as i32 {
+                MOUSE_Y = SCREEN_HEIGHT as i32 - 1;
+            }
+        }
+    }
+    SCREEN.lock().swap_buffers();
+    unsafe {
+        SCREEN.lock().draw_sprite_to_fb(
+            MOUSE_X as usize, MOUSE_Y as usize, CURSOR_BITMAP);
     }
 
     unsafe {

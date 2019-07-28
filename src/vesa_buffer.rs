@@ -10,8 +10,8 @@ use crate::{serial_print, serial_println};
 
 const BUFFER_HEIGHT: usize = 75;
 const BUFFER_WIDTH: usize = 100;
-const SCREEN_HEIGHT: usize = 600;
-const SCREEN_WIDTH: usize = 800;
+pub const SCREEN_HEIGHT: usize = 600;
+pub const SCREEN_WIDTH: usize = 800;
 const VGA_BUFFER: *mut u16 = (500 * 512 * 4096) as *mut _;
 
 pub struct Writer {
@@ -57,8 +57,7 @@ impl Writer {
                         if *byte & (1 << bit) == 0 {
                             continue;
                         }
-                        let color = &WHITE;
-                        SCREEN.lock().plot_pixel(self.xpos + x, self.ypos + y, color);
+                        SCREEN.lock().plot_pixel(self.xpos + x, self.ypos + y, &WHITE);
                     }
                 }
                 SCREEN.lock().swap_buffers();
@@ -116,6 +115,26 @@ impl Screen {
             for x in 400..500 {
                 let pixel_offset: usize = y * SCREEN_WIDTH + x;
                 back_buffer[pixel_offset] = RED.as_u16();
+            }
+        }
+    }
+
+    pub fn draw_sprite_to_fb(&mut self, x: usize, y: usize,
+                             sprite: [u16; 16]) {
+        for (i, byte) in sprite.iter().enumerate() {
+            let mut sprite_line = Vec::new();
+            for bit in 0..16 {
+                if byte & (1 << (15 - bit)) == (1 << (15 - bit)) {
+                    sprite_line.push(WHITE.as_u16());
+                } else {
+                    sprite_line.push(0x0);
+                }
+            }
+            let offset = (y + i) * SCREEN_WIDTH + x;
+            unsafe {
+                let src_ptr = sprite_line.as_slice().as_ptr();
+                let dst_ptr = self.vga_buffer.as_mut_ptr().offset(offset as isize);
+                copy_nonoverlapping(src_ptr, dst_ptr, 16);
             }
         }
     }

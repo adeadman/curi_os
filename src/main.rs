@@ -96,6 +96,12 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     test_main();
 
     println!("It didn't crash!");
+
+    // use curi_os::mouse::CURSOR_BITMAP;
+    // for (i, byte) in CURSOR_BITMAP.iter().enumerate() {
+    //     println!("{}: {:x}", i, byte);
+    // }
+
     curi_os::hlt_loop();
 }
 
